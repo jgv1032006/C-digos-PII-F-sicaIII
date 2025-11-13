@@ -114,6 +114,52 @@ advct_y = -v_wind[:,:].values * (dty.values/grady.values)
 # Calcular la adveccion.
 Tadv_numpy = advct_x + advct_y
 
+# %% Bloque 4.5: Calculo FDM Esférico Manual (NUEVO MÉTODO)
+
+# Constante
+R_tierra = 6.371e6  # Radio de la Tierra en metros
+
+# Rejilla 2D de latitudes en radianes (usando 'lats' de tu Bloque 4)
+lats_rad_2d = np.deg2rad(lats)
+
+# 1. Calcular dT/dlat y dT/dlon (K / índice)
+# np.gradient(T, axis=0) -> derivada en la dirección del eje 0 (latitud)
+# np.gradient(T, axis=1) -> derivada en la dirección del eje 1 (longitud)
+dT_dindex_lat = np.gradient(temperature.values, axis=0)
+dT_dindex_lon = np.gradient(temperature.values, axis=1)
+
+# 2. Calcular dlat y dlon (radianes / índice)
+# d(lat) por índice (calculado sobre el vector 1D de latitudes)
+dlat_rad_1d = np.gradient(np.deg2rad(latitudes.values))
+# d(lon) por índice (calculado sobre el vector 1D de longitudes)
+dlon_rad_1d = np.gradient(np.deg2rad(longitudes.values))
+
+# 3. Convertir espaciados 1D a mallas 2D
+# dlat_2d tiene shape (lat, lon)
+dlat_2d = np.tile(dlat_rad_1d[:, np.newaxis], (1, len(longitudes)))
+# dlon_2d tiene shape (lat, lon)
+dlon_2d = np.tile(dlon_rad_1d[np.newaxis, :], (len(latitudes), 1))
+
+# 4. Calcular los diferenciales físicos dx y dy (metros / índice)
+# dx = R * cos(lat) * dlon
+# dy = R * dlat
+dx = R_tierra * np.cos(lats_rad_2d) * dlon_2d
+dy = R_tierra * dlat_2d
+
+# 5. Calcular las derivadas físicas dT/dx y dT/dy (K / metro)
+# Usamos np.divide para manejar divisiones por cero de forma segura.
+dT_dx = np.divide(dT_dindex_lon, dx, 
+                  out=np.zeros_like(dT_dindex_lon), where=dx!=0)
+dT_dy = np.divide(dT_dindex_lat, dy, 
+                  out=np.zeros_like(dT_dindex_lat), where=dy!=0)
+
+# 6. Calcular la advección
+advct_x_manual = -u_wind.values * dT_dx
+advct_y_manual = -v_wind.values * dT_dy
+Tadv_manual = advct_x_manual + advct_y_manual
+
+# Limpiar posibles Infs/NaNs resultantes de las divisiones (ruido numérico)
+Tadv_manual = np.nan_to_num(Tadv_manual, nan=0.0, posinf=0.0, neginf=0.0)
 
 # %% Bloque 5: Calculo numerico de la adveccion usando MetPy.
 
@@ -157,57 +203,61 @@ temperature_advt_celcius = temperature_advt - 273.15
 temperature_advt_celcius_metpy = temperature_advt_metpy - 273.15
 temperature_next_celcius = temperature_next - 273.15
 
-# %% Bloque 7: Representacion de resultados de adveccion.
- 
+# %% Bloque 7: Representacion de resultados de adveccion (Comparativa 1x3)
+# (Este bloque reemplaza tu Bloque 7 original)
+
 crs = ccrs.PlateCarree()
- 
+
+# Mantenemos los mismos niveles de contorno para una comparación justa
 clevs_n_tmpc_diff = np.arange(-0.0010, 0.0010, 0.0001)
- 
-# Funcion usada  para crear las subfiguras del mapa.
+
+# Funcion usada para crear las subfiguras del mapa (ya la tienes)
 def plot_background(ax):
-     #ax.set_extent([-40., 40., 20., 60.])
-     ax.add_feature(cfeature.COASTLINE.with_scale('50m'),
-     linewidth=0.5)
-     ax.add_feature(cfeature.STATES, linewidth=0.5)
-     ax.add_feature(cfeature.BORDERS, linewidth=0.5)
-     return ax
- 
-# Crea la figura y representa el fondo en las distintas subfiguras.
-fig, axarr = plt.subplots(nrows=1, ncols=2, figsize=(20, 6.5),
-constrained_layout=True,subplot_kw={'projection': crs})
- 
+    #ax.set_extent([-40., 40., 20., 60.])
+    ax.add_feature(cfeature.COASTLINE.with_scale('50m'),
+    linewidth=0.5)
+    ax.add_feature(cfeature.STATES, linewidth=0.5)
+    ax.add_feature(cfeature.BORDERS, linewidth=0.5)
+    return ax
+
+# Crea la figura 1x3
+fig, axarr = plt.subplots(nrows=1, ncols=3, figsize=(24, 8),
+                          constrained_layout=True,
+                          subplot_kw={'projection': crs})
+
 axlist = axarr.flatten()
 for ax in axlist:
     plot_background(ax)
- 
-# Subfigura superior izquierda - Adveccion temperatura NumPy.
+
+# --- Gráfica 1: NumPy + Cartopy (Tu 'Tadv_numpy') ---
 cf1 = axlist[0].contourf(lons, lats, Tadv_numpy, 
-clevs_n_tmpc_diff, cmap=plt.cm.coolwarm, 
-transform=ccrs.PlateCarree())
-axlist[0].set_title('Adveccion de temperatura - NumPy',
-fontsize=16)
-cb1 = fig.colorbar(cf1, ax=axlist[0], orientation='horizontal',
-shrink=0.74, pad=0)
-cb1.set_label(r'$^{\circ}$C/s', size=10)
-cb1.ax.tick_params(labelsize=8)
+                         clevs_n_tmpc_diff, cmap=plt.cm.coolwarm, 
+                         extend='both', transform=ccrs.PlateCarree())
+axlist[0].set_title('Advección - NumPy + Cartopy', fontsize=14)
 
-# Subfigura superior derecha - Adveccion temperatura MetPy.
-cf2 = axlist[1].contourf(lons, lats, Tadv_metpy,
-clevs_n_tmpc_diff,cmap=plt.cm.coolwarm,
-transform=ccrs.PlateCarree())
-axlist[1].set_title('Adveccion de temperatura - Metpy',
-fontsize=16)
-cb2 = fig.colorbar(cf2, ax=axlist[1], orientation='horizontal',
-shrink=0.74, pad=0)
-cb2.set_label(r'$^{\circ}$C/s', size=10)
-cb2.ax.tick_params(labelsize=8)
+# --- Gráfica 2: Manual FDM (Esférico) (NUEVO) ---
+cf2 = axlist[1].contourf(lons, lats, Tadv_manual, 
+                         clevs_n_tmpc_diff, cmap=plt.cm.coolwarm, 
+                         extend='both', transform=ccrs.PlateCarree())
+axlist[1].set_title('Advección - Manual FDM (Esférico)', fontsize=14)
 
-# Espaciado vertical de las subfiguras.
+# --- Gráfica 3: MetPy ---
+cf3 = axlist[2].contourf(lons, lats, Tadv_metpy, 
+                         clevs_n_tmpc_diff, cmap=plt.cm.coolwarm, 
+                         extend='both', transform=ccrs.PlateCarree())
+axlist[2].set_title('Advección - MetPy', fontsize=14)
+
+# --- Barra de color común ---
+# Usamos cf2 (o cualquiera de ellas) para la barra de color
+fig.colorbar(cf2, ax=axarr, orientation='horizontal',
+             shrink=0.7, pad=0.05, label=r'$^{\circ}$C / s')
+
+# Espaciado vertical
 fig.set_constrained_layout_pads(w_pad=0., h_pad=0.1, hspace=0.,
 wspace=0.)
 
-# Mostramos las figuras.
-plt.savefig("Adveccion_{target_level}.png", dpi=300)
+# Guardar y mostrar
+plt.savefig(f"Comparativa_Adveccion_3_metodos_{target_level}hPa.png", dpi=300)
 plt.show()
 
 # %% Bloque 8: Representacion de resultados. Pronostico vs datos.
